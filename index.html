@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Scacchi P2P</title>
+<style>
+/* ---------- Base e tema scuro ---------- */
+*{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden;background:#161512;color:#c8c8c8;font:15px/1.3 system-ui,-apple-system,Segoe UI,sans-serif}
+#app{height:100dvh;display:flex;align-items:center;justify-content:center;padding:max(8px,env(safe-area-inset-top)) 8px max(8px,env(safe-area-inset-bottom))}
+[hidden]{display:none!important}
+button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:10px 14px;background:#3a3733;color:#ddd}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible,input:focus-visible{outline:2px solid #8ab4f8;outline-offset:2px}
+.pri{background:#629924;color:#fff;font-weight:600}
+/* ---------- Lobby ---------- */
+.card{background:#262421;border-radius:14px;padding:24px;width:min(420px,100%);box-shadow:0 8px 30px #0006}
+h1{font-size:22px;margin-bottom:6px;color:#fff}
+.sub{color:#8a8a8a;margin-bottom:10px}
+.grp{margin:16px 0}
+.grp b{display:block;font-size:13px;color:#8a8a8a;margin-bottom:8px;font-weight:500}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.opts button.on{background:#629924;color:#fff}
+#create{width:100%;margin-top:6px;padding:13px}
+/* ---------- Partita ---------- */
+#game{--s:min(calc(100vw - 16px),calc(100dvh - 176px),640px);width:var(--s);display:flex;flex-direction:column;gap:6px}
+.inv{display:flex;gap:6px}
+.inv input{flex:1;min-width:0;background:#1c1b19;border:1px solid #3a3733;color:#ccc;border-radius:8px;padding:8px}
+.bar{display:flex;align-items:center;gap:8px;height:34px}
+.name{font-weight:600;color:#eee;white-space:nowrap}
+.caps{flex:1;display:flex;min-width:0;height:20px;overflow:hidden}
+.caps svg{width:18px;height:18px;margin-right:-7px;flex:none}
+.clk{font:600 20px ui-monospace,Menlo,monospace;background:#3a3733;padding:2px 10px;border-radius:6px;min-width:76px;text-align:center}
+.clk.act{background:#629924;color:#fff}
+.clk.low{background:#a33;color:#fff}
+#bw{position:relative;width:var(--s);height:var(--s)}
+#board{display:grid;grid-template:repeat(8,1fr)/repeat(8,1fr);width:100%;height:100%;border-radius:6px;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+.sq{position:relative}
+.sq.l{background:#dee3e6}.sq.d{background:#8ca2ad}
+.sq svg{width:100%;height:100%;display:block;pointer-events:none}
+.sq.last{box-shadow:inset 0 0 0 100px rgba(155,199,0,.38)}
+.sq.sel{box-shadow:inset 0 0 0 100px rgba(20,130,60,.5)}
+.sq.chk{background-image:radial-gradient(circle,#ff4d4d,rgba(255,0,0,0) 75%)}
+.sq.tgt::after{content:"";position:absolute;inset:35%;border-radius:50%;background:rgba(0,0,0,.25)}
+.sq.cap::after{inset:4%;background:none;border:4px solid rgba(0,0,0,.25)}
+.sq.drg svg{opacity:.25}
+#ghost{position:fixed;pointer-events:none;display:none;z-index:50}
+#ghost svg{width:100%;height:100%}
+#st{display:flex;justify-content:space-between;align-items:center;height:26px}
+.badge{padding:3px 10px;border-radius:99px;font-size:13px;background:#3a3733}
+.ok{background:#2d5a1a;color:#d4f5c4}.bad{background:#6a2222;color:#ffd6d6}.wait{background:#5a4a1a;color:#ffe9a8}
+/* ---------- Overlay (fine partita / promozione) ---------- */
+.ov{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.4);z-index:10;border-radius:6px}
+.box{background:#262421;border-radius:12px;padding:16px;text-align:center;box-shadow:0 8px 30px #000a;max-width:90%;position:relative}
+.box p{font-size:18px;color:#fff;font-weight:600;margin:4px 14px 14px}
+.box .row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.x{position:absolute;top:2px;right:2px;background:none;padding:6px 10px;color:#999}
+#promo .box{display:flex;gap:6px;padding:10px}
+#promo button{width:calc(var(--s)/6);height:calc(var(--s)/6);padding:2px;background:#dee3e6}
+#promo svg{width:100%;height:100%}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="msg" class="card" style="color:#ddd">Caricamento…</div>
+
+  <!-- LOBBY: configurazione partita -->
+  <section id="lobby" class="card" hidden>
+    <h1>Scacchi P2P</h1>
+    <p class="sub">Sfida un amico con un link. Nessun server, nessun account.</p>
+    <div class="grp"><b>Tempo di gioco</b>
+      <div class="opts" id="o-time">
+        <button data-v="60">1 min</button><button data-v="180">3 min</button><button data-v="300">5 min</button>
+        <button data-v="600" class="on">10 min</button><button data-v="0">Senza tempo ∞</button>
+      </div></div>
+    <div class="grp"><b>Il tuo colore</b>
+      <div class="opts" id="o-col">
+        <button data-v="w">Bianco</button><button data-v="b">Nero</button><button data-v="r" class="on">Casuale</button>
+      </div></div>
+    <button id="create" class="pri">Crea partita e genera link</button>
+  </section>
+
+  <!-- PARTITA -->
+  <section id="game" hidden>
+    <div class="inv" id="inv"><input id="lnk" readonly aria-label="Link di invito"><button id="cp" class="pri">Copia link</button></div>
+    <div class="bar" id="top"><span class="name"></span><span class="caps"></span><span class="clk"></span></div>
+    <div id="bw">
+      <div id="board"></div>
+      <div class="ov" id="over" hidden><div class="box">
+        <button class="x" id="cl" aria-label="Chiudi">✕</button>
+        <p id="ovt"></p>
+        <div class="row"><button id="rem" class="pri">Rivincita</button><button id="pgn">Copia PGN</button></div>
+      </div></div>
+      <div class="ov" id="promo" hidden><div class="box"></div></div>
+    </div>
+    <div class="bar" id="bot"><span class="name"></span><span class="caps"></span><span class="clk"></span></div>
+    <div id="st"><span class="badge wait" id="conn"></span><span id="turn"></span></div>
+  </section>
+</div>
+<div id="ghost"></div>
+
+<script type="module">
+// Caricamento librerie con fallback su più CDN (se uno è irraggiungibile prova il successivo)
+let Chess, joinRoom;
+async function load(urls) {
+  let err;
+  for (const u of urls) { try { return await import(u); } catch (e) { err = e; console.warn('Import fallito:', u, e); } }
+  throw err;
+}
+const showErr = m => { const d = $('#msg'); d.hidden = false; d.textContent = m; };
+addEventListener('error', e => showErr('Errore: ' + e.message));
+addEventListener('unhandledrejection', e => showErr('Errore: ' + (e.reason && e.reason.message || e.reason)));
+
+const $ = s => document.querySelector(s);
+const ICE = [{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}];
+
+/* ---------- Pezzi SVG (stile pulito, colore da fill/stroke) ---------- */
+const PC = {
+ p:'<circle cx="22.5" cy="14" r="5.5"/><path d="M14 37c0-9 3-11 8.5-14 5.500 3 8.500 5 8.500 14z"/>',
+ r:'<path d="M11 37h23v-4H11zM14 33V19h17v14zM11 19V9h5v3h4V9h5v3h4V9h5v10z"/>',
+ n:'<path d="M12 37c0-10 3-13 8-17-3-1-5-3-5-6 3-4 7-6 10-5 6 1 10 7 10 15 0 5 0 9 0 13z"/><circle cx="23" cy="15" r="1.4" style="fill:var(--st);stroke:none"/>',
+ b:'<circle cx="22.5" cy="5.5" r="2.2"/><ellipse cx="22.5" cy="14" rx="4.5" ry="6.5"/><path d="M13 37c0-8 3-11 9.500-15 6.500 4 9.500 7 9.500 15z"/>',
+ q:'<path d="M9 37l-3-21 9 8 3-13 4.500 13 4.500-13 3 13 9-8-3 21z"/><circle cx="6" cy="14" r="2.3"/><circle cx="15" cy="9" r="2.3"/><circle cx="22.500" cy="6" r="2.3"/><circle cx="30" cy="9" r="2.3"/><circle cx="39" cy="14" r="2.3"/>',
+ k:'<path d="M21 2h3v4h4v3h-4v4h-3V9h-4V6h4z"/><path d="M10 37c0-10 4-16 12.500-16S35 27 35 37z"/>'
+};
+const svg = (c,t) => { const f=c==='w'?'#fff':'#262626', s=c==='w'?'#1a1a1a':'#ececec';
+  return `<svg viewBox="0 0 45 45"><g fill="${f}" stroke="${s}" stroke-width="1.6" stroke-linejoin="round" style="--st:${s}">${PC[t]}</g></svg>`; };
+
+/* ---------- Stato ---------- */
+// G = stato persistente: host, hostColor ('w'/'b' = colore del creatore), base (sec), gid (n. partita),
+//     wt/bt (ms residui), over (testo esito), rq/oq (rivincita richiesta da me / dall'avversario)
+let room = new URLSearchParams(location.search).get('room');
+let G, ch, peers = 0, everConn = false, sel = null, targets = [], drag = null,
+    pend = null, hideOv = false, last = Date.now(), send = () => {};
+const key = () => 'p2pchess:' + room;
+const other = c => c === 'w' ? 'b' : 'w';
+// Il mio colore: dedotto da hostColor e dal ruolo (creatore/ospite). null finché non arriva la sync.
+const mine = () => G.hostColor ? (G.host ? G.hostColor : other(G.hostColor)) : null;
+const save = () => { try { localStorage.setItem(key(), JSON.stringify({...G, pgn: ch.pgn()})); } catch {} };
+
+/* ---------- Avvio ---------- */
+(async () => {
+  try {
+    ({Chess} = await load([
+      'https://esm.sh/chess.js@1.0.4',
+      'https://cdn.jsdelivr.net/npm/chess.js@1.0.4/+esm',
+      'https://esm.sh/chess.js'
+    ]));
+    ({joinRoom} = await load([
+      'https://esm.sh/trystero@0.21.5/torrent',
+      'https://esm.sh/trystero/torrent',
+      'https://cdn.jsdelivr.net/npm/trystero@0.21.5/torrent/+esm'
+    ]));
+  } catch (e) {
+    showErr('Impossibile caricare le librerie da CDN (' + (e && e.message || e) + '). Controlla la connessione, disattiva eventuali ad-blocker e apri la pagina da un indirizzo https://.');
+    return;
+  }
+  $('#msg').hidden = true;
+  ch = new Chess();
+  if (!room) setupLobby(); else startGame();
+})();
+
+function setupLobby() {
+  $('#lobby').hidden = false;
+  document.querySelectorAll('.opts').forEach(g => g.onclick = e => {
+    if (e.target.tagName !== 'BUTTON') return;
+    g.querySelectorAll('button').forEach(b => b.classList.remove('on')); e.target.classList.add('on');
+  });
+  $('#create').onclick = () => {
+    const t = +$('#o-time .on').dataset.v, c = $('#o-col .on').dataset.v;
+    const id = [...crypto.getRandomValues(new Uint8Array(8))].map(b => (b % 36).toString(36)).join('');
+    const hc = c === 'r' ? (Math.random() < .5 ? 'w' : 'b') : c;
+    room = id;
+    G = {host:true, hostColor:hc, base:t, gid:0, wt:t*1000, bt:t*1000, over:null};
+    save(); history.replaceState(null, '', '?room=' + id);
+    $('#lobby').hidden = true; startGame();
+  };
+}
+
+function startGame() {
+  if (!G) { // ospite o rientro: recupero da localStorage
+    let s = null; try { s = JSON.parse(localStorage.getItem(key())); } catch {}
+    G = s || {host:false, hostColor:null, base:0, gid:-1, wt:0, bt:0, over:null};
+    if (s && s.pgn) { try { ch.loadPgn(s.pgn); } catch {} }
+  }
+  G.rq = G.oq = false;
+  $('#game').hidden = false;
+  $('#lnk').value = location.origin + location.pathname + '?room=' + room;
+  $('#cp').onclick = () => copy($('#lnk').value, $('#cp'), 'Copiato!');
+  $('#pgn').onclick = () => copy(ch.pgn() || '*', $('#pgn'), 'Copiato!');
+  $('#cl').onclick = () => { hideOv = true; render(); };
+  $('#rem').onclick = () => { G.rq = true; send({t:'rem', gid:G.gid}); G.oq ? startNew() : render(); };
+  connect(); render();
+  setInterval(tick, 200); setInterval(save, 2000);
+  addEventListener('beforeunload', save);
+}
+
+async function copy(txt, btn, ok) {
+  try { await navigator.clipboard.writeText(txt); }
+  catch { const t = document.createElement('textarea'); t.value = txt; document.body.append(t); t.select(); document.execCommand('copy'); t.remove(); }
+  const o = btn.textContent; btn.textContent = ok; setTimeout(() => btn.textContent = o, 1500);
+}
+
+/* ---------- Rete WebRTC (Trystero) ---------- */
+function connect() {
+  const r = joinRoom({appId:'p2p-chess-minimal-v1', rtcConfig:{iceServers:ICE}}, room);
+  const [snd, get] = r.makeAction('msg'); send = snd;
+  const snap = () => ({t:'sync', hostColor:G.hostColor, base:G.base, gid:G.gid, pgn:ch.pgn(),
+                       ply:ch.history().length, wt:G.wt, bt:G.bt, over:G.over});
+  r.onPeerJoin(() => { peers++; everConn = true; send(snap()); render(); });
+  r.onPeerLeave(() => { peers = Math.max(0, peers - 1); render(); });
+  get(m => {
+    if (m.t === 'sync') {
+      // Vince lo stato più avanzato: n. partita, poi n. mosse, poi esito
+      const ply = ch.history().length;
+      if (m.gid > G.gid || (m.gid === G.gid && (m.ply > ply || (m.ply === ply && m.over && !G.over)))) {
+        Object.assign(G, {hostColor:m.hostColor, base:m.base, gid:m.gid, wt:m.wt, bt:m.bt, over:m.over, rq:false, oq:false});
+        ch = new Chess(); if (m.pgn) { try { ch.loadPgn(m.pgn); } catch {} }
+        sel = null; targets = []; hideOv = false; last = Date.now(); save(); render();
+      }
+    } else if (m.t === 'move') {
+      if (G.over || m.n !== ch.history().length + 1) { send(snap()); return; } // fuori sync: riallineo
+      applyMove({from:m.from, to:m.to, promotion:m.promotion}, false, m.tm);
+    } else if (m.t === 'rem' && m.gid === G.gid) {
+      G.oq = true; G.rq ? startNew() : render();
+    }
+  });
+}
+
+/* ---------- Logica di gioco ---------- */
+function end(t) { G.over = t; hideOv = false; }
+function checkEnd() {
+  if (G.over) return;
+  if (ch.isCheckmate()) end(`Vittoria del ${ch.turn() === 'w' ? 'Nero' : 'Bianco'} per scacco matto`);
+  else if (ch.isStalemate()) end('Patta per stallo');
+  else if (ch.isInsufficientMaterial()) end('Patta per materiale insufficiente');
+  else if (ch.isThreefoldRepetition()) end('Patta per triplice ripetizione');
+  else if (ch.isDrawByFiftyMoves()) end('Patta per la regola delle 50 mosse');
+}
+
+function applyMove(mv, local, remoteTime) {
+  let m; try { m = ch.move(mv); } catch { return false; }
+  const k = m.color === 'w' ? 'wt' : 'bt';
+  if (!local && G.base > 0) G[k] = remoteTime;   // tempo esatto del mittente
+  last = Date.now(); sel = null; targets = [];
+  if (local) send({t:'move', from:mv.from, to:mv.to, promotion:mv.promotion, tm:G[k], n:ch.history().length});
+  checkEnd(); save(); render(); return true;
+}
+
+function startNew() { // rivincita: colori invertiti
+  G.gid++; G.hostColor = other(G.hostColor); G.wt = G.bt = G.base * 1000;
+  G.over = null; G.rq = G.oq = false; ch = new Chess(); sel = null; targets = []; hideOv = false;
+  last = Date.now(); save(); render();
+}
+
+// Orologio: parte dopo la prima mossa del Bianco; ogni client scala il tempo del lato di turno
+function tick() {
+  const n = Date.now(), dt = n - last; last = n;
+  if (G.base > 0 && !G.over && G.gid >= 0 && ch.history().length > 0) {
+    const k = ch.turn() === 'w' ? 'wt' : 'bt';
+    G[k] -= dt;
+    if (G[k] <= 0) { G[k] = 0; end(`Tempo scaduto: vittoria del ${k === 'wt' ? 'Nero' : 'Bianco'}`); save(); render(); }
+  }
+  clocks();
+}
+const fmt = ms => { if (G.gid < 0) return '--:--'; if (!G.base) return '∞';
+  const s = Math.ceil(Math.max(0, ms) / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+
+/* ---------- Rendering ---------- */
+function render() { drawBoard(); bars(); status(); }
+
+function drawBoard() {
+  const flip = mine() === 'b', lm = ch.history({verbose:true}).slice(-1)[0];
+  let king = null;
+  if (ch.inCheck()) for (const row of ch.board()) for (const x of row) if (x && x.type === 'k' && x.color === ch.turn()) king = x.square;
+  let h = '';
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    const f = flip ? 7 - c : c, rk = flip ? r : 7 - r, sq = 'abcdefgh'[f] + (rk + 1);
+    const p = ch.get(sq), t = targets.find(m => m.to === sq);
+    let cl = 'sq ' + ((f + rk) % 2 ? 'l' : 'd');
+    if (lm && (sq === lm.from || sq === lm.to)) cl += ' last';
+    if (sq === sel) cl += ' sel';
+    if (t) cl += (p || t.flags.includes('e')) ? ' tgt cap' : ' tgt';
+    if (sq === king) cl += ' chk';
+    if (drag && drag.moved && sq === drag.sq) cl += ' drg';
+    h += `<div class="${cl}">${p ? svg(p.color, p.type) : ''}</div>`;
+  }
+  $('#board').innerHTML = h;
+}
+
+const lost = c => { const n = {p:8, n:2, b:2, r:2, q:1};
+  ch.board().flat().forEach(x => { if (x && x.color === c && n[x.type] !== undefined) n[x.type]--; });
+  return 'qrbnp'.split('').map(t => svg(c, t).repeat(Math.max(0, n[t]))).join(''); };
+
+function bars() {
+  const me = mine() || 'w';
+  [['#bot', me, 'Tu'], ['#top', other(me), 'Avversario']].forEach(([id, c, n]) => {
+    const el = $(id); el.dataset.c = c;
+    el.querySelector('.name').textContent = `${n} (${c === 'w' ? 'Bianco' : 'Nero'})`;
+    el.querySelector('.caps').innerHTML = lost(other(c)); // pezzi avversari catturati da questo giocatore
+  });
+  clocks();
+}
+
+function clocks() {
+  document.querySelectorAll('.bar').forEach(el => {
+    const c = el.dataset.c, ms = c === 'w' ? G.wt : G.bt, k = el.querySelector('.clk');
+    k.textContent = fmt(ms);
+    k.classList.toggle('act', !G.over && G.base > 0 && ch.history().length > 0 && ch.turn() === c);
+    k.classList.toggle('low', G.base > 0 && G.gid >= 0 && ms < 10000);
+  });
+}
+
+function status() {
+  const b = $('#conn');
+  if (peers > 0) { b.textContent = 'In gioco'; b.className = 'badge ok'; }
+  else if (everConn) { b.textContent = 'Avversario disconnesso'; b.className = 'badge bad'; }
+  else { b.textContent = "In attesa dell'avversario..."; b.className = 'badge wait'; }
+  const me = mine();
+  $('#turn').textContent = G.over ? 'Partita terminata' : !me ? '' :
+    (ch.turn() === me ? 'Tocca a te' : "Tocca all'avversario") + (ch.inCheck() ? ' · Scacco!' : '');
+  $('#inv').hidden = !(G.host && !everConn && !ch.history().length);
+  $('#over').hidden = !G.over || hideOv;
+  $('#ovt').textContent = G.over || '';
+  $('#rem').textContent = G.rq ? 'In attesa…' : G.oq ? 'Accetta rivincita' : 'Rivincita';
+  $('#rem').disabled = G.rq;
+}
+
+/* ---------- Input: click-to-move e drag&drop (Pointer Events, ottimo su touch) ---------- */
+const bd = $('#board');
+const myTurn = () => G.gid >= 0 && !G.over && mine() && ch.turn() === mine();
+const sqAt = e => { const r = bd.getBoundingClientRect(), flip = mine() === 'b';
+  const c = Math.floor((e.clientX - r.left) / r.width * 8), k = Math.floor((e.clientY - r.top) / r.height * 8);
+  if (c < 0 || c > 7 || k < 0 || k > 7) return null;
+  return 'abcdefgh'[flip ? 7 - c : c] + (flip ? k + 1 : 8 - k); };
+
+bd.onpointerdown = e => {
+  if (!myTurn() || pend) return;
+  const s = sqAt(e); if (!s) return;
+  if (sel && targets.some(m => m.to === s)) { doMove(sel, s); return; }   // secondo click: muovo
+  const p = ch.get(s);
+  if (p && p.color === mine()) {
+    sel = s; targets = ch.moves({square:s, verbose:true});
+    drag = {sq:s, x:e.clientX, y:e.clientY, moved:false}; bd.setPointerCapture(e.pointerId);
+  } else { sel = null; targets = []; }
+  drawBoard();
+};
+bd.onpointermove = e => {
+  if (!drag) return;
+  const g = $('#ghost'), z = bd.clientWidth / 8;
+  if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6) {
+    drag.moved = true; g.style.width = g.style.height = z + 'px';
+    g.innerHTML = svg(mine(), ch.get(drag.sq).type); g.style.display = 'block'; drawBoard();
+  }
+  if (drag.moved) { g.style.left = e.clientX - z / 2 + 'px'; g.style.top = e.clientY - z / 2 + 'px'; }
+};
+bd.onpointerup = bd.onpointercancel = e => {
+  if (!drag) return;
+  const d = drag; drag = null; $('#ghost').style.display = 'none';
+  if (d.moved) { const s = e.type === 'pointerup' ? sqAt(e) : null;
+    if (s && targets.some(m => m.to === s)) doMove(d.sq, s); else drawBoard(); }
+};
+bd.oncontextmenu = e => e.preventDefault();
+
+function doMove(from, to) {
+  const mv = targets.find(m => m.from === from && m.to === to); if (!mv) return;
+  if (mv.promotion) { // mini-modale scelta pezzo
+    pend = {from, to};
+    $('#promo .box').innerHTML = 'qrbn'.split('').map(p => `<button data-p="${p}" aria-label="${p}">${svg(mine(), p)}</button>`).join('');
+    $('#promo').hidden = false;
+  } else applyMove({from, to}, true);
+}
+$('#promo').onclick = e => {
+  const b = e.target.closest('button'); if (!b || !pend) return;
+  const p = pend; pend = null; $('#promo').hidden = true;
+  applyMove({from:p.from, to:p.to, promotion:b.dataset.p}, true);
+};
+</script>
+</body>
+</html>
